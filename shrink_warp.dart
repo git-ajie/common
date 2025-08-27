@@ -2,6 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
+///流式标签
+
 class ShrinkWrap extends MultiChildRenderObjectWidget {
   ShrinkWrap({
     Key? key,
