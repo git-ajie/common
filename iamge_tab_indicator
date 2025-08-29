@@ -1,0 +1,75 @@
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// 图片tab指示器
+
+class ImageTabIndicator extends Decoration {
+  final String assetName;
+  final double size;
+  final EdgeInsets indicatorPadding; // 新增padding参数
+
+  const ImageTabIndicator({required this.assetName, this.size = 24, this.indicatorPadding = EdgeInsets.zero});
+
+  @override
+  BoxPainter createBoxPainter([VoidCallback? onChanged]) {
+    return _ImagePainter(assetName, size, indicatorPadding, onChanged); // 传入onChanged
+  }
+}
+
+class _ImagePainter extends BoxPainter {
+  final String assetName;
+  final double size;
+  final EdgeInsets padding;
+  ui.Image? _image;
+  final VoidCallback? onChanged;
+  bool _disposed = false;
+  String? _loadedAssetName; // 记录已加载的资源名
+
+  _ImagePainter(this.assetName, this.size, this.padding, this.onChanged) {
+    _ensureImageLoaded();
+  }
+
+  void _ensureImageLoaded() {
+    if (_loadedAssetName == assetName && _image != null) {
+      return; // 资源相同且已有缓存，不再重复加载
+    }
+    _loadedAssetName = assetName;
+    _loadImage();
+  }
+
+  void _loadImage() async {
+    final ByteData data = await rootBundle.load(assetName);
+    ui.decodeImageFromList(data.buffer.asUint8List(), (image) {
+      if (!_disposed) {
+        _image?.dispose(); // 释放旧图
+        _image = image;
+        onChanged?.call(); // 触发重绘
+      } else {
+        image.dispose();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _image?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void paint(Canvas canvas, Offset offset, ImageConfiguration cfg) {
+    if (_image == null) return;
+
+    final Size sizeCfg = cfg.size ?? Size.zero;
+    final double availableWidth = sizeCfg.width - padding.left - padding.right;
+    final double x = offset.dx + padding.left + math.max(0, (availableWidth - size) / 2);
+    final double y = offset.dy + sizeCfg.height - size - padding.bottom;
+    final Rect dstRect = Rect.fromLTWH(x, y, size, size);
+
+    paintImage(canvas: canvas, rect: dstRect, image: _image!, fit: BoxFit.contain);
+  }
+}
