@@ -2,74 +2,100 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
-/// 图片tab指示器
 
 class ImageTabIndicator extends Decoration {
-  final String assetName;
-  final double size;
-  final EdgeInsets indicatorPadding; // 新增padding参数
+  /// The image to be painted as the indicator.
+  final ImageProvider imageProvider;
 
-  const ImageTabIndicator({required this.assetName, this.size = 24, this.indicatorPadding = EdgeInsets.zero});
+  /// The size of the indicator image. Defaults to 24.0.
+  final double size;
+
+  /// The padding for the indicator. Defaults to [EdgeInsets.zero].
+  final EdgeInsets indicatorPadding;
+
+  const ImageTabIndicator({required this.imageProvider, this.size = 24.0, this.indicatorPadding = EdgeInsets.zero});
 
   @override
   BoxPainter createBoxPainter([VoidCallback? onChanged]) {
-    return _ImagePainter(assetName, size, indicatorPadding, onChanged); // 传入onChanged
+    return _ImagePainter(imageProvider, size, indicatorPadding, onChanged);
   }
 }
 
 class _ImagePainter extends BoxPainter {
-  final String assetName;
+  final ImageProvider imageProvider;
   final double size;
   final EdgeInsets padding;
-  ui.Image? _image;
   final VoidCallback? onChanged;
+
+  ui.Image? _image;
+  ImageStream? _imageStream;
+  ImageStreamListener? _listener;
   bool _disposed = false;
-  String? _loadedAssetName; // 记录已加载的资源名
+  ImageConfiguration? _imageConfiguration;
 
-  _ImagePainter(this.assetName, this.size, this.padding, this.onChanged) {
-    _ensureImageLoaded();
-  }
+  _ImagePainter(this.imageProvider, this.size, this.padding, this.onChanged);
 
-  void _ensureImageLoaded() {
-    if (_loadedAssetName == assetName && _image != null) {
-      return; // 资源相同且已有缓存，不再重复加载
+  void _resolveImage(ImageConfiguration configuration) {
+    // 如果配置没有变化，或者已经有 stream 了，就不用重复解析
+    if (_imageStream != null && configuration == _imageConfiguration) {
+      return;
     }
-    _loadedAssetName = assetName;
-    _loadImage();
+    _imageConfiguration = configuration;
+
+    _imageStream = imageProvider.resolve(_imageConfiguration!);
+    _listener = ImageStreamListener(_handleImageLoaded, onError: _handleImageError);
+    _imageStream!.addListener(_listener!);
   }
 
-  void _loadImage() async {
-    final ByteData data = await rootBundle.load(assetName);
-    ui.decodeImageFromList(data.buffer.asUint8List(), (image) {
-      if (!_disposed) {
-        _image?.dispose(); // 释放旧图
-        _image = image;
-        onChanged?.call(); // 触发重绘
-      } else {
-        image.dispose();
-      }
-    });
+  void _handleImageLoaded(ImageInfo imageInfo, bool synchronousCall) {
+    if (_disposed) {
+      // If the painter is already disposed, dispose the image and do nothing.
+      imageInfo.dispose();
+      return;
+    }
+
+    // Dispose the old image if one exists.
+    _image?.dispose();
+    _image = imageInfo.image;
+
+    // Trigger a repaint.
+    onChanged?.call();
+  }
+
+  void _handleImageError(dynamic exception, StackTrace? stackTrace) {
+    // Log the error for easier debugging.
+    debugPrint('Failed to load image for ImageTabIndicator: $exception');
   }
 
   @override
   void dispose() {
     _disposed = true;
+    // VERY IMPORTANT: Remove the listener to prevent memory leaks.
+    if (_listener != null) {
+      _imageStream?.removeListener(_listener!);
+    }
+    // Dispose the image resource.
     _image?.dispose();
     super.dispose();
   }
 
   @override
   void paint(Canvas canvas, Offset offset, ImageConfiguration cfg) {
+    _resolveImage(cfg);
     if (_image == null) return;
 
     final Size sizeCfg = cfg.size ?? Size.zero;
     final double availableWidth = sizeCfg.width - padding.left - padding.right;
+
+    // Horizontally center the image within the available padded space.
     final double x = offset.dx + padding.left + math.max(0, (availableWidth - size) / 2);
+
+    // Position the image at the bottom of the tab.
     final double y = offset.dy + sizeCfg.height - size - padding.bottom;
+
     final Rect dstRect = Rect.fromLTWH(x, y, size, size);
 
     paintImage(canvas: canvas, rect: dstRect, image: _image!, fit: BoxFit.contain);
   }
 }
+
